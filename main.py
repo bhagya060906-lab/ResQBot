@@ -27,6 +27,10 @@ pygame.display.set_caption(
 
 clock = pygame.time.Clock()
 
+# Autonomous movement settings
+MOVE_INTERVAL_MS = 300
+last_move_time = 0
+
 # Colors
 BACKGROUND = (20, 25, 35)
 GRID_COLOR = (45, 52, 65)
@@ -60,6 +64,9 @@ robot = [1, 1]
 
 target = (10, 15)
 
+# Initially, the robot is controlled manually
+autonomous_mode = False
+
 
 # -----------------------------------------
 # 3. ROBOT MOVEMENT
@@ -87,7 +94,7 @@ def move_robot(row_change, col_change):
 # 4. DRAW ENVIRONMENT
 # -----------------------------------------
 
-def draw_environment():
+def draw_environment(status):
 
     screen.fill(BACKGROUND)
 
@@ -162,13 +169,7 @@ def draw_environment():
         5
     )
 
-    # Status
-    status = (
-        "TARGET REACHED!"
-        if tuple(robot) == target
-        else "MANUAL MODE"
-    )
-
+    # Display status
     status_text = font.render(
         status,
         True,
@@ -181,22 +182,20 @@ def draw_environment():
     )
 
     controls = font.render(
-        "Arrow Keys: Move Robot | ESC: Exit",
+        "A: Auto | Arrow Keys: Manual | ESC: Exit",
         True,
         TEXT_COLOR
     )
 
     screen.blit(
         controls,
-        (WIDTH - 410, HEIGHT - 35)
+        (WIDTH - 470, HEIGHT - 35)
     )
 
 
 # -----------------------------------------
 # 5. MAIN GAME LOOP
 # -----------------------------------------
-
-navigation_path = None
 
 running = True
 
@@ -216,29 +215,54 @@ while running:
             if event.key == pygame.K_ESCAPE:
                 running = False
 
+            # Activate or deactivate autonomous mode
+            elif event.key == pygame.K_a:
+
+                if tuple(robot) != target:
+                    autonomous_mode = not autonomous_mode
+
+            # Arrow keys switch back to manual mode
             elif event.key == pygame.K_UP:
+                autonomous_mode = False
                 move_robot(-1, 0)
 
             elif event.key == pygame.K_DOWN:
+                autonomous_mode = False
                 move_robot(1, 0)
 
             elif event.key == pygame.K_LEFT:
+                autonomous_mode = False
                 move_robot(0, -1)
 
             elif event.key == pygame.K_RIGHT:
+                autonomous_mode = False
                 move_robot(0, 1)
 
     if not running:
         break
 
     # -------------------------------------
-    # B. DRAW ENVIRONMENT
+    # B. CHECK TARGET STATUS
     # -------------------------------------
 
-    draw_environment()
+    if tuple(robot) == target:
+        autonomous_mode = False
+
+    if tuple(robot) == target:
+        status = "TARGET REACHED!"
+    elif autonomous_mode:
+        status = "AUTONOMOUS MODE"
+    else:
+        status = "MANUAL MODE"
 
     # -------------------------------------
-    # C. CAMERA CAPTURE
+    # C. DRAW ENVIRONMENT
+    # -------------------------------------
+
+    draw_environment(status)
+
+    # -------------------------------------
+    # D. CAMERA CAPTURE
     # -------------------------------------
 
     camera_frame = pygame.surfarray.array3d(screen)
@@ -249,35 +273,57 @@ while running:
     ).copy()
 
     # -------------------------------------
-    # D. COMPUTER VISION
+    # E. COMPUTER VISION
     # -------------------------------------
 
     detections = detect_objects(camera_frame)
 
     # -------------------------------------
-    # E. A* PATH PLANNING
+    # F. A* PATH PLANNING
     # -------------------------------------
 
-    if navigation_path is None:
-
-        navigation_path, goal, detected_obstacles = (
-            build_navigation_map(
-                detections,
-                CELL_SIZE,
-                ROWS,
-                COLS
-            )
+    navigation_path, goal, detected_obstacles = (
+        build_navigation_map(
+            detections,
+            CELL_SIZE,
+            ROWS,
+            COLS
         )
-
-    path = navigation_path
+    )
 
     # -------------------------------------
-    # F. DRAW CALCULATED PATH
+    # G. AUTONOMOUS MOVEMENT
     # -------------------------------------
 
-    if path:
+    current_time = pygame.time.get_ticks()
 
-        for row, col in path:
+    if autonomous_mode and navigation_path:
+
+        if current_time - last_move_time >= MOVE_INTERVAL_MS:
+
+            # The first path cell is the robot's current position.
+            # The second cell is the next destination.
+            if len(navigation_path) > 1:
+
+                next_row, next_col = navigation_path[1]
+
+                row_change = next_row - robot[0]
+                col_change = next_col - robot[1]
+
+                move_robot(row_change, col_change)
+
+                last_move_time = current_time
+
+            else:
+                autonomous_mode = False
+
+    # -------------------------------------
+    # H. DRAW A* PATH
+    # -------------------------------------
+
+    if navigation_path:
+
+        for row, col in navigation_path:
 
             center = (
                 col * CELL_SIZE + CELL_SIZE // 2,
@@ -292,7 +338,7 @@ while running:
             )
 
     # -------------------------------------
-    # G. DRAW DETECTION BOXES
+    # I. DRAW DETECTION BOXES
     # -------------------------------------
 
     detection_colours = {
@@ -315,7 +361,7 @@ while running:
             )
 
     # -------------------------------------
-    # H. DISPLAY STATISTICS
+    # J. DISPLAY STATISTICS
     # -------------------------------------
 
     obstacle_count = len(detections["obstacle"])
@@ -334,7 +380,7 @@ while running:
     )
 
     # -------------------------------------
-    # I. REFRESH DISPLAY
+    # K. REFRESH DISPLAY
     # -------------------------------------
 
     pygame.display.flip()
