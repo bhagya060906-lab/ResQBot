@@ -1,6 +1,8 @@
 
 import pygame
 import sys
+import numpy as np
+from perception.detection import detect_objects
 
 # -----------------------------------------
 # 1. INITIALIZATION
@@ -192,11 +194,52 @@ while running:
             elif event.key == pygame.K_RIGHT:
                 move_robot(0, 1)
 
+
     draw_environment()
+
+    # Capture the rendered simulation as an RGB image
+    camera_frame = pygame.surfarray.array3d(screen)
+    camera_frame = np.transpose(camera_frame, (1, 0, 2)).copy()
+
+    # Detect objects using OpenCV
+    detections = detect_objects(camera_frame)
+
+    # Draw bounding boxes around detected objects
+    detection_colours = {
+        "obstacle": (255, 120, 120),
+        "target": (100, 255, 150),
+        "robot": (100, 180, 255)
+    }
+
+    for label, objects in detections.items():
+
+        for obj in objects:
+
+            x, y, width, height = obj["bbox"]
+
+            pygame.draw.rect(
+                screen,
+                detection_colours[label],
+                (x, y, width, height),
+                2
+            )
+
+    # Display perception statistics
+    obstacle_count = len(detections["obstacle"])
+    target_count = len(detections["target"])
+
+    perception_text = font.render(
+        f"Detected Obstacles: {obstacle_count} | Targets: {target_count}",
+        True,
+        TEXT_COLOR
+    )
+
+    screen.blit(perception_text, (15, 10))
 
     pygame.display.flip()
 
     clock.tick(60)
+
 
 
 # -----------------------------------------
