@@ -5,6 +5,7 @@ import numpy as np
 
 from perception.detection import detect_objects
 from navigation.path_planner import build_navigation_map
+from simulation.dynamic_obstacle import DynamicObstacle
 
 
 # -----------------------------------------
@@ -27,7 +28,6 @@ pygame.display.set_caption(
 
 clock = pygame.time.Clock()
 
-# Autonomous movement settings
 MOVE_INTERVAL_MS = 300
 last_move_time = 0
 
@@ -38,6 +38,7 @@ ROBOT_COLOR = (40, 140, 255)
 OBSTACLE_COLOR = (220, 65, 65)
 TARGET_COLOR = (40, 200, 120)
 TEXT_COLOR = (240, 240, 240)
+DYNAMIC_COLOR = (255, 150, 40)
 
 font = pygame.font.SysFont("Arial", 22)
 
@@ -61,10 +62,16 @@ obstacles = {
 }
 
 robot = [1, 1]
-
 target = (10, 15)
 
-# Initially, the robot is controlled manually
+dynamic_obstacle = DynamicObstacle(
+    row=7,
+    start_col=9,
+    min_col=9,
+    max_col=11,
+    interval_ms=1200
+)
+
 autonomous_mode = False
 
 
@@ -83,7 +90,12 @@ def move_robot(row_change, col_change):
     if not (0 <= new_col < COLS):
         return
 
-    if (new_row, new_col) in obstacles:
+    new_position = (new_row, new_col)
+
+    if new_position in obstacles:
+        return
+
+    if new_position == dynamic_obstacle.position:
         return
 
     robot[0] = new_row
@@ -116,7 +128,7 @@ def draw_environment(status):
                 1
             )
 
-    # Draw obstacles
+    # Draw static obstacles
     for row, col in obstacles:
 
         rect = pygame.Rect(
@@ -131,6 +143,22 @@ def draw_environment(status):
             OBSTACLE_COLOR,
             rect.inflate(-5, -5)
         )
+
+    # Draw dynamic obstacle
+    dynamic_row, dynamic_col = dynamic_obstacle.position
+
+    dynamic_rect = pygame.Rect(
+        dynamic_col * CELL_SIZE,
+        dynamic_row * CELL_SIZE,
+        CELL_SIZE,
+        CELL_SIZE
+    )
+
+    pygame.draw.rect(
+        screen,
+        DYNAMIC_COLOR,
+        dynamic_rect.inflate(-5, -5)
+    )
 
     # Draw target
     target_rect = pygame.Rect(
@@ -215,13 +243,11 @@ while running:
             if event.key == pygame.K_ESCAPE:
                 running = False
 
-            # Activate or deactivate autonomous mode
             elif event.key == pygame.K_a:
 
                 if tuple(robot) != target:
                     autonomous_mode = not autonomous_mode
 
-            # Arrow keys switch back to manual mode
             elif event.key == pygame.K_UP:
                 autonomous_mode = False
                 move_robot(-1, 0)
@@ -242,7 +268,13 @@ while running:
         break
 
     # -------------------------------------
-    # B. CHECK TARGET STATUS
+    # B. UPDATE DYNAMIC OBSTACLE
+    # -------------------------------------
+
+    dynamic_obstacle.update(pygame.time.get_ticks())
+
+    # -------------------------------------
+    # C. CHECK TARGET STATUS
     # -------------------------------------
 
     if tuple(robot) == target:
@@ -256,13 +288,13 @@ while running:
         status = "MANUAL MODE"
 
     # -------------------------------------
-    # C. DRAW ENVIRONMENT
+    # D. DRAW ENVIRONMENT
     # -------------------------------------
 
     draw_environment(status)
 
     # -------------------------------------
-    # D. CAMERA CAPTURE
+    # E. CAMERA CAPTURE
     # -------------------------------------
 
     camera_frame = pygame.surfarray.array3d(screen)
@@ -273,13 +305,13 @@ while running:
     ).copy()
 
     # -------------------------------------
-    # E. COMPUTER VISION
+    # F. COMPUTER VISION
     # -------------------------------------
 
     detections = detect_objects(camera_frame)
 
     # -------------------------------------
-    # F. A* PATH PLANNING
+    # G. A* PATH PLANNING
     # -------------------------------------
 
     navigation_path, goal, detected_obstacles = (
@@ -291,19 +323,23 @@ while running:
         )
     )
 
+    # Include the known dynamic obstacle cell in the
+    # navigation collision check.
+    if navigation_path:
+        if dynamic_obstacle.position in navigation_path[1:]:
+            navigation_path = None
+
     # -------------------------------------
-    # G. AUTONOMOUS MOVEMENT
+    # H. AUTONOMOUS MOVEMENT
     # -------------------------------------
 
     current_time = pygame.time.get_ticks()
 
-    if autonomous_mode and navigation_path:
+    if autonomous_mode:
 
-        if current_time - last_move_time >= MOVE_INTERVAL_MS:
+        if navigation_path and len(navigation_path) > 1:
 
-            # The first path cell is the robot's current position.
-            # The second cell is the next destination.
-            if len(navigation_path) > 1:
+            if current_time - last_move_time >= MOVE_INTERVAL_MS:
 
                 next_row, next_col = navigation_path[1]
 
@@ -314,11 +350,11 @@ while running:
 
                 last_move_time = current_time
 
-            else:
-                autonomous_mode = False
+        elif not navigation_path:
+            status = "PATH BLOCKED - WAITING"
 
     # -------------------------------------
-    # H. DRAW A* PATH
+    # I. DRAW A* PATH
     # -------------------------------------
 
     if navigation_path:
@@ -338,7 +374,7 @@ while running:
             )
 
     # -------------------------------------
-    # I. DRAW DETECTION BOXES
+    # J. DRAW DETECTION BOXES
     # -------------------------------------
 
     detection_colours = {
@@ -361,7 +397,7 @@ while running:
             )
 
     # -------------------------------------
-    # J. DISPLAY STATISTICS
+    # K. DISPLAY STATISTICS
     # -------------------------------------
 
     obstacle_count = len(detections["obstacle"])
@@ -380,7 +416,7 @@ while running:
     )
 
     # -------------------------------------
-    # K. REFRESH DISPLAY
+    # L. REFRESH DISPLAY
     # -------------------------------------
 
     pygame.display.flip()
