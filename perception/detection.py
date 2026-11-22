@@ -9,10 +9,8 @@ def detect_objects(frame_rgb):
     from an RGB simulation image using OpenCV.
     """
 
-    # Convert RGB image into HSV
     hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
 
-    # Define colour ranges
     colour_ranges = {
         "obstacle": [
             (np.array([0, 100, 80]), np.array([10, 255, 255])),
@@ -32,25 +30,22 @@ def detect_objects(frame_rgb):
         "robot": []
     }
 
-    # Process each object category
     for label, ranges in colour_ranges.items():
 
-        # Create a binary mask
         mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
 
         for lower, upper in ranges:
             colour_mask = cv2.inRange(hsv, lower, upper)
             mask = cv2.bitwise_or(mask, colour_mask)
 
-        # Remove small noise
         kernel = np.ones((3, 3), np.uint8)
+
         mask = cv2.morphologyEx(
             mask,
             cv2.MORPH_OPEN,
             kernel
         )
 
-        # Find connected object regions
         count, labels, stats, centroids = (
             cv2.connectedComponentsWithStats(mask, 8)
         )
