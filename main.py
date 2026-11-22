@@ -2,7 +2,10 @@
 import pygame
 import sys
 import numpy as np
+
 from perception.detection import detect_objects
+from navigation.path_planner import build_navigation_map
+
 
 # -----------------------------------------
 # 1. INITIALIZATION
@@ -18,7 +21,9 @@ ROWS = HEIGHT // CELL_SIZE
 COLS = WIDTH // CELL_SIZE
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("ResQBot - Search and Rescue Simulation")
+pygame.display.set_caption(
+    "ResQBot - Search and Rescue Simulation"
+)
 
 clock = pygame.time.Clock()
 
@@ -32,26 +37,29 @@ TEXT_COLOR = (240, 240, 240)
 
 font = pygame.font.SysFont("Arial", 22)
 
+
 # -----------------------------------------
 # 2. ENVIRONMENT
 # -----------------------------------------
 
-# Obstacle positions are represented as (row, column)
 obstacles = {
     (2, 3), (3, 3), (4, 3),
     (5, 3), (6, 3),
+
     (2, 7), (3, 7), (4, 7),
     (5, 7), (6, 7),
+
     (8, 5), (8, 6), (8, 7),
+
     (3, 12), (4, 12), (5, 12),
+
     (9, 12), (10, 12)
 }
 
-# Robot starting position
 robot = [1, 1]
 
-# Rescue target
 target = (10, 15)
+
 
 # -----------------------------------------
 # 3. ROBOT MOVEMENT
@@ -62,18 +70,15 @@ def move_robot(row_change, col_change):
     new_row = robot[0] + row_change
     new_col = robot[1] + col_change
 
-    # Check environment boundaries
     if not (0 <= new_row < ROWS):
         return
 
     if not (0 <= new_col < COLS):
         return
 
-    # Check for obstacles
     if (new_row, new_col) in obstacles:
         return
 
-    # Update robot position
     robot[0] = new_row
     robot[1] = new_col
 
@@ -97,7 +102,12 @@ def draw_environment():
                 CELL_SIZE
             )
 
-            pygame.draw.rect(screen, GRID_COLOR, rect, 1)
+            pygame.draw.rect(
+                screen,
+                GRID_COLOR,
+                rect,
+                1
+            )
 
     # Draw obstacles
     for row, col in obstacles:
@@ -109,9 +119,13 @@ def draw_environment():
             CELL_SIZE
         )
 
-        pygame.draw.rect(screen, OBSTACLE_COLOR, rect.inflate(-5, -5))
+        pygame.draw.rect(
+            screen,
+            OBSTACLE_COLOR,
+            rect.inflate(-5, -5)
+        )
 
-    # Draw rescue target
+    # Draw target
     target_rect = pygame.Rect(
         target[1] * CELL_SIZE,
         target[0] * CELL_SIZE,
@@ -141,7 +155,6 @@ def draw_environment():
         border_radius=10
     )
 
-    # Draw robot direction indicator
     pygame.draw.circle(
         screen,
         TEXT_COLOR,
@@ -149,11 +162,23 @@ def draw_environment():
         5
     )
 
-    # Display status
-    status = "TARGET REACHED!" if tuple(robot) == target else "MANUAL MODE"
+    # Status
+    status = (
+        "TARGET REACHED!"
+        if tuple(robot) == target
+        else "MANUAL MODE"
+    )
 
-    status_text = font.render(status, True, TEXT_COLOR)
-    screen.blit(status_text, (15, HEIGHT - 35))
+    status_text = font.render(
+        status,
+        True,
+        TEXT_COLOR
+    )
+
+    screen.blit(
+        status_text,
+        (15, HEIGHT - 35)
+    )
 
     controls = font.render(
         "Arrow Keys: Move Robot | ESC: Exit",
@@ -161,16 +186,25 @@ def draw_environment():
         TEXT_COLOR
     )
 
-    screen.blit(controls, (WIDTH - 410, HEIGHT - 35))
+    screen.blit(
+        controls,
+        (WIDTH - 410, HEIGHT - 35)
+    )
 
 
 # -----------------------------------------
 # 5. MAIN GAME LOOP
 # -----------------------------------------
 
+navigation_path = None
+
 running = True
 
 while running:
+
+    # -------------------------------------
+    # A. EVENT HANDLING
+    # -------------------------------------
 
     for event in pygame.event.get():
 
@@ -194,17 +228,73 @@ while running:
             elif event.key == pygame.K_RIGHT:
                 move_robot(0, 1)
 
+    if not running:
+        break
+
+    # -------------------------------------
+    # B. DRAW ENVIRONMENT
+    # -------------------------------------
 
     draw_environment()
 
-    # Capture the rendered simulation as an RGB image
-    camera_frame = pygame.surfarray.array3d(screen)
-    camera_frame = np.transpose(camera_frame, (1, 0, 2)).copy()
+    # -------------------------------------
+    # C. CAMERA CAPTURE
+    # -------------------------------------
 
-    # Detect objects using OpenCV
+    camera_frame = pygame.surfarray.array3d(screen)
+
+    camera_frame = np.transpose(
+        camera_frame,
+        (1, 0, 2)
+    ).copy()
+
+    # -------------------------------------
+    # D. COMPUTER VISION
+    # -------------------------------------
+
     detections = detect_objects(camera_frame)
 
-    # Draw bounding boxes around detected objects
+    # -------------------------------------
+    # E. A* PATH PLANNING
+    # -------------------------------------
+
+    if navigation_path is None:
+
+        navigation_path, goal, detected_obstacles = (
+            build_navigation_map(
+                detections,
+                CELL_SIZE,
+                ROWS,
+                COLS
+            )
+        )
+
+    path = navigation_path
+
+    # -------------------------------------
+    # F. DRAW CALCULATED PATH
+    # -------------------------------------
+
+    if path:
+
+        for row, col in path:
+
+            center = (
+                col * CELL_SIZE + CELL_SIZE // 2,
+                row * CELL_SIZE + CELL_SIZE // 2
+            )
+
+            pygame.draw.circle(
+                screen,
+                (255, 215, 0),
+                center,
+                7
+            )
+
+    # -------------------------------------
+    # G. DRAW DETECTION BOXES
+    # -------------------------------------
+
     detection_colours = {
         "obstacle": (255, 120, 120),
         "target": (100, 255, 150),
@@ -224,22 +314,32 @@ while running:
                 2
             )
 
-    # Display perception statistics
+    # -------------------------------------
+    # H. DISPLAY STATISTICS
+    # -------------------------------------
+
     obstacle_count = len(detections["obstacle"])
     target_count = len(detections["target"])
 
     perception_text = font.render(
-        f"Detected Obstacles: {obstacle_count} | Targets: {target_count}",
+        f"Detected Obstacles: {obstacle_count} | "
+        f"Targets: {target_count}",
         True,
         TEXT_COLOR
     )
 
-    screen.blit(perception_text, (15, 10))
+    screen.blit(
+        perception_text,
+        (15, 10)
+    )
+
+    # -------------------------------------
+    # I. REFRESH DISPLAY
+    # -------------------------------------
 
     pygame.display.flip()
 
     clock.tick(60)
-
 
 
 # -----------------------------------------
